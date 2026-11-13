@@ -51,11 +51,41 @@ export async function handleVapi(desk: FrontDesk, body: unknown): Promise<unknow
 
   if (type === "assistant-request") return { assistant: desk.vapiAssistant() };
 
+  if (type === "transfer-destination-request") {
+    await desk.runExternalTool({
+      channel: "vapi",
+      externalId,
+      from,
+      name: "transfer_call",
+      args: { reason: "Vapi asked for a transfer destination" },
+    });
+    const number = desk.transferNumber();
+    return {
+      destination: { type: "number", number },
+      message: { type: "request-start", message: "I'll connect you with the shop now." },
+    };
+  }
+
+  if (type === "status-update" && String(message.status ?? "") === "forwarding") {
+    await desk.runExternalTool({
+      channel: "vapi",
+      externalId,
+      from,
+      name: "transfer_call",
+      args: { reason: "Vapi is forwarding the call" },
+    });
+    return { ok: true };
+  }
+
   if (type === "tool-calls" || type === "function-call") {
     const results = [];
     for (const tool of vapiTools(message)) {
       const result = await desk.runExternalTool({ channel: "vapi", externalId, from, name: tool.name, args: tool.args });
-      results.push({ toolCallId: tool.id, result });
+      const entry: Record<string, unknown> = { name: tool.name, toolCallId: tool.id, result };
+      if (typeof result.number === "string") {
+        entry.destination = { type: "number", number: result.number, message: result.speech };
+      }
+      results.push(entry);
     }
     return { results };
   }
@@ -87,7 +117,9 @@ export async function handleRetell(desk: FrontDesk, body: unknown): Promise<unkn
     const slots = Array.isArray(result.slots)
       ? (result.slots as Array<{ label?: string; start?: string }>).map((slot) => `${slot.label} | ${slot.start}`).join("\n")
       : "";
-    return { result: slots ? `${speech}\n${slots}` : speech };
+    const payload: Record<string, unknown> = { result: slots ? `${speech}\n${slots}` : speech };
+    if (typeof result.number === "string") payload.transfer_number = result.number;
+    return payload;
   }
   const event = String(root.event ?? "");
   if (event === "call_started") {

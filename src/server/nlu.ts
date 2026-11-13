@@ -98,6 +98,9 @@ export type Interpretation = {
   yes: boolean;
   no: boolean;
   askedPrice: boolean;
+  askedHours: boolean;
+  askedOpenNow: boolean;
+  askedLocation: boolean;
   faqId?: string;
   weekdayWord?: keyof typeof DAY_WORD;
 };
@@ -241,15 +244,17 @@ export function interpret(text: string, business: Business, now: Date, pending?:
   const transfer = /\b(transfer me|real person|actual person|human being|live person|talk to (a |the )?(person|human|manager|owner|representative|operator)|speak to (a |the )?(person|human|manager|owner|operator)|customer service|a manager|the owner|the manager)\b/i.test(trimmed);
   const askedPrice = /\b(how much|price|pricing|cost|quote|rates?)\b/i.test(trimmed);
   const bookWords = /\b(book|schedule|appointment|reservation|come in|drop[\s-]?off|set up|sign me up|reserve)\b/i.test(trimmed);
-  const openNow = /\b(open now|are you open|still open|open today|are you guys open)\b/i.test(trimmed);
-  const hours = /\b(hours|what time (do you|are you)|when (are you|do you) open|when do you close|opening time|are you open)\b/i.test(trimmed);
-  const location = /\b(where are you|address|located|directions|parking)\b/i.test(trimmed);
-  const services = /\b(what do you (offer|do)|services|menu|options)\b/i.test(trimmed);
-  const policy = /\bpolicy\b/i.test(trimmed);
-  const cancel = /\bcancel\b/i.test(trimmed) && !policy;
   const weekdayWord = Object.keys(DAY_WORD).find((word) => new RegExp(`\\b${word}\\b`, "i").test(trimmed)) as
     | keyof typeof DAY_WORD
     | undefined;
+  const askedOpenNow = /\b(open now|are you open|still open|open today|are you guys open)\b/i.test(trimmed);
+  const askedHours =
+    /\b(hours|what time (do you|are you)|when (are you|do you) open|when do you close|opening time|are you open)\b/i.test(trimmed) ||
+    (askedOpenNow && Boolean(weekdayWord));
+  const askedLocation = /\b(where are you|address|located|directions|parking)\b/i.test(trimmed);
+  const services = /\b(what do you (offer|do)|services|menu|options)\b/i.test(trimmed);
+  const policy = /\bpolicy\b/i.test(trimmed);
+  const cancel = /\bcancel\b/i.test(trimmed) && !policy;
 
   const bookingPending = pending === "service" || pending === "name" || pending === "phone" || pending === "when" || pending === "slot";
 
@@ -260,9 +265,9 @@ export function interpret(text: string, business: Business, now: Date, pending?:
   else if (pending === "phone" && phone) intent = "provide";
   else if (goodbye && pending !== "slot") intent = "goodbye";
   else if (cancel) intent = "cancel";
-  else if (openNow && !weekdayWord) intent = "open_now";
-  else if (hours || (openNow && weekdayWord)) intent = "hours";
-  else if (location) intent = "location";
+  else if (askedOpenNow && !weekdayWord) intent = "open_now";
+  else if (askedHours) intent = "hours";
+  else if (askedLocation) intent = "location";
   else if (bookWords || (bookingPending && (name || phone || when.day || serviceId || slotIndex !== undefined))) intent = "book";
   else if (askedPrice) intent = "pricing";
   else if (faqId && !bookWords) intent = "faq";
@@ -284,6 +289,9 @@ export function interpret(text: string, business: Business, now: Date, pending?:
     yes,
     no,
     askedPrice,
+    askedHours,
+    askedOpenNow,
+    askedLocation,
     faqId,
     weekdayWord,
   };

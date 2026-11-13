@@ -101,6 +101,15 @@ describe("receptionist", () => {
     expect(open.say.toLowerCase()).toContain("open right now");
   });
 
+  it("answers the price and Saturday hours in the same question", async () => {
+    const desk = await makeDesk();
+    const call = await desk.startCall({ channel: "simulator" });
+    const turn = await desk.handleText(call.id, "How much is a full detail and are you open Saturday?");
+    expect(turn.say).toContain("$249 to $399");
+    expect(turn.say.toLowerCase()).toContain("saturday");
+    expect(turn.say).toMatch(/8:00 AM/);
+  });
+
   it("books from one sentence and refuses a second booking on the same slot", async () => {
     const desk = await makeDesk();
     const first = await desk.startCall({ channel: "simulator", from: "+15125550148" });
@@ -266,6 +275,44 @@ describe("Groq", () => {
     expect(turn.action).toBe("booked");
     expect(turn.call.llm?.fallback).toBe(true);
     expect(turn.call.llm?.note).toMatch(/429/);
+  });
+
+  it("fills in a price the model skipped on a two-part question", async () => {
+    const fetchImpl = (async () =>
+      new Response(
+        JSON.stringify({ choices: [{ message: { content: "Yes, we're open Saturday from 8 to 2.", tool_calls: [] } }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )) as typeof fetch;
+    const desk = await makeDesk({ LLM_PROVIDER: "groq", GROQ_API_KEY: "gsk_test_key" }, fetchImpl);
+    const call = await desk.startCall({ channel: "simulator" });
+    const turn = await desk.handleText(call.id, "How much is a full detail and are you open Saturday?");
+    expect(turn.call.llm?.fallback).toBe(false);
+    expect(turn.say).toContain("$249 to $399");
+    expect(turn.say.toLowerCase()).toContain("saturday");
+  });
+
+  it("keeps a complete model answer from repeating the price", async () => {
+    const line = "A full detail is $249 to $399. Saturday we're open 8:00 AM to 2:00 PM.";
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({ choices: [{ message: { content: line } }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch;
+    const desk = await makeDesk({ LLM_PROVIDER: "groq", GROQ_API_KEY: "gsk_test_key" }, fetchImpl);
+    const call = await desk.startCall({ channel: "simulator" });
+    const turn = await desk.handleText(call.id, "How much is a full detail and are you open Saturday?");
+    expect(turn.say.match(/\$249 to \$399/g)).toHaveLength(1);
+    expect(turn.say.toLowerCase()).toContain("saturday");
+  });
+
+  it("still answers both parts when Groq fails", async () => {
+    const fetchImpl = (async () => new Response("rate limit", { status: 429 })) as typeof fetch;
+    const desk = await makeDesk({ LLM_PROVIDER: "groq", GROQ_API_KEY: "gsk_test_key" }, fetchImpl);
+    const call = await desk.startCall({ channel: "simulator" });
+    const turn = await desk.handleText(call.id, "How much is a full detail and are you open Saturday?");
+    expect(turn.call.llm?.fallback).toBe(true);
+    expect(turn.say).toContain("$249 to $399");
+    expect(turn.say.toLowerCase()).toContain("saturday");
   });
 
   it("does not let a rephrase drop a price", () => {
