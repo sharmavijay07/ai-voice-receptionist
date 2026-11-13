@@ -85,10 +85,17 @@ export class FrontDesk {
     const wantGoogleCal = (env.CALENDAR_PROVIDER ?? "mock") === "google";
     const wantSheets = (env.CRM_PROVIDER ?? "local") === "google";
     const auth = creds ? new GoogleAccess(creds, fetchImpl) : null;
-    const calendar = wantGoogleCal && creds && auth ? new GoogleCalendar(creds, auth, fetchImpl) : new MockCalendar();
-    const crm = wantSheets && creds && auth ? new GoogleSheets(creds.spreadsheetId, auth, fetchImpl) : new LocalCrm();
-    const sms = (env.SMS_PROVIDER ?? "mock") === "twilio" ? new TwilioSms(env, fetchImpl) : new MockMessages("mock");
-    const email = (env.EMAIL_PROVIDER ?? "mock") === "resend" ? new ResendEmail(env, fetchImpl) : new MockMessages("mock");
+    const calendar =
+      wantGoogleCal && creds && auth && filled(env.GOOGLE_CALENDAR_ID) ? new GoogleCalendar(creds, auth, fetchImpl) : new MockCalendar();
+    const crm = wantSheets && creds && auth && filled(creds.spreadsheetId) ? new GoogleSheets(creds.spreadsheetId, auth, fetchImpl) : new LocalCrm();
+    const sms =
+      (env.SMS_PROVIDER ?? "mock") === "twilio" && filled(env.TWILIO_ACCOUNT_SID) && filled(env.TWILIO_AUTH_TOKEN) && filled(env.TWILIO_FROM_NUMBER)
+        ? new TwilioSms(env, fetchImpl)
+        : new MockMessages("mock");
+    const email =
+      (env.EMAIL_PROVIDER ?? "mock") === "resend" && filled(env.RESEND_API_KEY) && filled(env.NOTIFY_FROM_EMAIL)
+        ? new ResendEmail(env, fetchImpl)
+        : new MockMessages("mock");
     const desk = new FrontDesk(options, { calendar, crm, sms, email });
     const safe = calendar.mode === "mock" && sms.mode === "mock" && email.mode === "mock";
     if (options.seed && safe && desk.store.isEmpty()) await desk.seedDemo();
@@ -134,10 +141,10 @@ export class FrontDesk {
         ready: calendarReady,
         detail:
           this.calendar.mode === "google"
-            ? calendarReady
-              ? "Google Calendar checks free/busy and writes the event."
-              : "CALENDAR_PROVIDER=google needs a service account and GOOGLE_CALENDAR_ID."
-            : "Mock calendar. Bookings stay in the local desk log.",
+            ? "Google Calendar checks free/busy and writes the event."
+            : this.env.CALENDAR_PROVIDER === "google"
+              ? "Google was selected, but the service account or calendar id is missing. Bookings stay in the local log."
+              : "Mock calendar. Bookings stay in the local desk log.",
       },
       crm: {
         name: "CRM",
@@ -146,19 +153,31 @@ export class FrontDesk {
         detail:
           this.crm.mode === "google"
             ? "Each call and booking is appended to the Calls tab."
-            : "The dashboard is the CRM. Set CRM_PROVIDER=google to copy rows into a Sheet.",
+            : this.env.CRM_PROVIDER === "google"
+              ? "Sheets was selected, but the service account or spreadsheet id is missing. The dashboard is the CRM."
+              : "The dashboard is the CRM. Set CRM_PROVIDER=google to copy rows into a Sheet.",
       },
       sms: {
         name: "SMS",
         mode: this.sms.mode,
         ready: true,
-        detail: this.sms.mode === "twilio" ? "Twilio sends the confirmation text." : "Texts are logged on the desk, not sent.",
+        detail:
+          this.sms.mode === "twilio"
+            ? "Twilio sends the confirmation text."
+            : this.env.SMS_PROVIDER === "twilio"
+              ? "Twilio was selected, but the account SID, token, or from-number is missing. Texts are only logged."
+              : "Texts are logged on the desk, not sent.",
       },
       email: {
         name: "Email",
         mode: this.email.mode,
         ready: true,
-        detail: this.email.mode === "resend" ? "Resend sends the confirmation." : "Emails are logged on the desk, not sent.",
+        detail:
+          this.email.mode === "resend"
+            ? "Resend sends the confirmation."
+            : this.env.EMAIL_PROVIDER === "resend"
+              ? "Resend was selected, but the API key or from-address is missing. Emails are only logged."
+              : "Emails are logged on the desk, not sent.",
       },
     };
   }
@@ -286,7 +305,7 @@ export class FrontDesk {
 
   vapiAssistant() {
     const business = this.business();
-    const base = (this.env.PUBLIC_BASE_URL || "").replace(/\/$/, "");
+    const base = (this.env.PUBLIC_BASE_URL || this.env.RENDER_EXTERNAL_URL || "").replace(/\/$/, "");
     return {
       name: `${business.name} ${business.assistant_name}`,
       firstMessage: business.greeting,
@@ -879,6 +898,10 @@ export class FrontDesk {
     transfer.transfer = { number: business.transfer_number, reason: "Ceramic warranty" };
     await this.saveCall(transfer);
   }
+}
+
+function filled(value: string | undefined): boolean {
+  return Boolean(value && value.trim());
 }
 
 function replaceLast(call: CallRecord, say: string) {

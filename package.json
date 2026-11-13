@@ -6,7 +6,7 @@
     "dev": "next dev -p 43123 -H 0.0.0.0",
     "demo": "node scripts/demo.mjs",
     "build": "next build",
-    "start": "next start -p 43123 -H 0.0.0.0",
+    "start": "node scripts/start.mjs",
     "lint": "eslint",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

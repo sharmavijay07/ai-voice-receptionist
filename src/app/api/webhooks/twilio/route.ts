@@ -6,7 +6,7 @@ export async function POST(request: Request) {
     const form = await request.formData();
     const params: Record<string, string> = {};
     for (const [key, value] of form.entries()) params[key] = String(value);
-    const base = process.env.PUBLIC_BASE_URL || new URL(request.url).origin;
+    const base = process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || new URL(request.url).origin;
     const url = `${base.replace(/\/$/, "")}/api/webhooks/twilio`;
     if (!twilioAuthorized({ url, params, signature: request.headers.get("x-twilio-signature"), authToken: process.env.TWILIO_AUTH_TOKEN })) {
       return new Response("Invalid Twilio signature", { status: 401 });

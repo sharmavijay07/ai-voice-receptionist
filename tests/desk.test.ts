@@ -145,6 +145,24 @@ describe("receptionist", () => {
     expect(later.booking?.serviceId).toBe("express-wash");
   });
 
+  it("keeps calendar, sheet, text, and email in mock mode when those keys are missing", async () => {
+    const desk = await makeDesk({
+      CALENDAR_PROVIDER: "google",
+      CRM_PROVIDER: "google",
+      SMS_PROVIDER: "twilio",
+      EMAIL_PROVIDER: "resend",
+    });
+    const status = desk.providerStatus();
+    expect(status.calendar.mode).toBe("mock");
+    expect(status.crm.mode).toBe("local");
+    expect(status.sms.mode).toBe("mock");
+    expect(status.email.mode).toBe("mock");
+    const call = await desk.startCall({ channel: "simulator" });
+    const booked = await desk.handleText(call.id, "Book an express wash next Monday at 9 AM for Sam Lee, 512-555-0100.");
+    expect(booked.action).toBe("booked");
+    expect(desk.store.read().messages.some((message) => message.channel === "sms" && message.provider === "mock")).toBe(true);
+  });
+
   it("transfers to the shop number and can cancel a booking", async () => {
     const desk = await makeDesk();
     const call = await desk.startCall({ channel: "simulator" });

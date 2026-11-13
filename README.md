@@ -95,7 +95,35 @@ n8n/booking-webhook.json    optional import
 4. Open the phone. Type, use the mic (Chrome or Edge), or play the sample call.
 5. `npm test` before you change the booking rules.
 
-The dev server listens on port **43123**.
+The dev server listens on port **43123**. `npm start` binds to `0.0.0.0` and `$PORT` (43123 when `PORT` is unset), which is what Render's free web service expects.
+
+## Deploy to Render
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/sharmavijay07/ai-voice-receptionist)
+
+The blueprint is `render.yaml`: a free Node web service. Build and start:
+
+```bash
+npm install --include=dev --no-audit --no-fund && NODE_OPTIONS=--max-old-space-size=460 npm run build
+NODE_OPTIONS=--max-old-space-size=384 npm run start
+```
+
+`npm start` runs `node scripts/start.mjs`, which listens on `0.0.0.0:$PORT`. The heap caps stay inside the free plan's 512 MB.
+
+On the Render dashboard, the only value you type in is **GROQ_API_KEY** (`sync: false` in the blueprint). The model is `openai/gpt-oss-120b` at `https://api.groq.com/openai/v1`. Calendar, Sheets, Twilio, Resend, Vapi, and Retell stay in demo mode until their keys exist, so the public URL is a working desk with only the Groq key set. The call log lives on the instance disk and is cleared when the free service restarts. The free instance also sleeps after inactivity. The first visit wakes it.
+
+| Variable | On Render |
+| --- | --- |
+| `GROQ_API_KEY` | Required. You paste it in the dashboard. |
+| `LLM_PROVIDER`, `LLM_MODE`, `GROQ_MODEL`, `GROQ_BASE_URL`, `GROQ_REASONING_EFFORT` | Set by the blueprint. Groq, tools mode, `openai/gpt-oss-120b`. |
+| `CALENDAR_PROVIDER`, `CRM_PROVIDER`, `SMS_PROVIDER`, `EMAIL_PROVIDER` | Set to mock / local. Change them only when you add that provider's keys. |
+| `DEMO_SEED`, `BUSINESS_CONFIG`, `STORE_PATH` | Set by the blueprint. |
+| `GOOGLE_CLIENT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_CALENDAR_ID`, `GOOGLE_SHEETS_ID` | Optional. Without them, calendar and CRM stay local even if you flip the provider. |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` | Optional. Without all three, texts are only logged. |
+| `RESEND_API_KEY`, `NOTIFY_FROM_EMAIL` | Optional. Without both, email is only logged. |
+| `VAPI_WEBHOOK_SECRET`, `VAPI_VOICE_PROVIDER`, `VAPI_VOICE_ID` | Optional. The browser phone does not need them. |
+| `PUBLIC_BASE_URL` | Optional. On Render, webhook links fall back to `RENDER_EXTERNAL_URL`. |
+| `GEMINI_API_KEY`, `N8N_WEBHOOK_URL`, `N8N_WEBHOOK_SECRET` | Optional. |
 
 ## Go live
 
