@@ -1,0 +1,32 @@
+{
+  "name": "Front desk booking",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "front-desk-booking",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Booking webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "content": "The app POSTs event booking.created here when N8N_WEBHOOK_URL is set. Add Google Sheets and Gmail or Twilio nodes after this webhook. The desk already writes the calendar, the sheet, and the confirmation itself, so this workflow is optional glue.",
+        "height": 180,
+        "width": 360
+      },
+      "id": "note",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 80]
+    }
+  ],
+  "connections": {},
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}

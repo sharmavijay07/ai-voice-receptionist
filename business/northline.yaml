@@ -1,0 +1,104 @@
+id: northline
+name: Northline Detail & Tint
+assistant_name: Maya
+phone: "+15125550142"
+transfer_number: "+15125550190"
+email: desk@northline.example
+timezone: America/Chicago
+address: 1840 Springdale Road, Austin, Texas
+greeting: Thanks for calling Northline Detail and Tint, this is Maya. How can I help you today?
+hours_speech: Monday through Friday, 8:00 AM to 6:00 PM, and Saturday 8:00 AM to 2:00 PM. Sunday the shop is closed.
+menu_speech: An express wash is $49 to $79, interior and exterior details sit in the $100s, a full detail is $249 to $399, ceramic starts at $699, and full-vehicle tint is $249 to $449.
+hours:
+  mon: { open: "08:00", close: "18:00" }
+  tue: { open: "08:00", close: "18:00" }
+  wed: { open: "08:00", close: "18:00" }
+  thu: { open: "08:00", close: "18:00" }
+  fri: { open: "08:00", close: "18:00" }
+  sat: { open: "08:00", close: "14:00" }
+  sun: null
+services:
+  - id: express-wash
+    name: Express Wash
+    duration_minutes: 45
+    price: $49 to $79
+    description: Exterior wash, wheels, and a vacuum. The price moves with the size of the vehicle.
+    aliases: [express, express wash, quick wash, wash]
+  - id: interior-detail
+    name: Interior Detail
+    duration_minutes: 120
+    price: $149 to $219
+    description: Seats, carpets, trim, and glass. We steam whatever needs it.
+    aliases: [interior, interior detail]
+  - id: exterior-detail
+    name: Exterior Detail
+    duration_minutes: 120
+    price: $129 to $199
+    description: Wash, decontamination, and a sealant so it beads up.
+    aliases: [exterior, exterior detail, wash and wax]
+  - id: full-detail
+    name: Full Detail
+    duration_minutes: 180
+    price: $249 to $399
+    description: Interior and exterior, start to finish.
+    aliases: [full detail, the works, complete detail]
+  - id: ceramic-coating
+    name: Ceramic Coating
+    duration_minutes: 240
+    price: from $699
+    description: Paint coating with a real prep. The vehicle stays with us for the day.
+    aliases: [ceramic, ceramic coating, coating]
+    deposit: true
+  - id: window-tint
+    name: Window Tint
+    duration_minutes: 150
+    price: $249 to $449
+    description: Full vehicle, in a shade that's legal in Texas.
+    aliases: [tint, window tint, windows, tint job]
+  - id: paint-correction
+    name: Paint Correction
+    duration_minutes: 300
+    price: from $499
+    description: Machine polish to cut swirls. Often done before a coating.
+    aliases: [paint correction, correction]
+  - id: ppf-front
+    name: Front PPF
+    duration_minutes: 240
+    price: quoted after we see the car
+    description: Clear film on the front clip. We quote it once we see the paint.
+    aliases: [ppf, clear bra, paint protection, paint protection film]
+    deposit: true
+faqs:
+  - id: mobile
+    triggers: [mobile, come to me, at my house, at my office, on site]
+    answer: We work out of the shop on Springdale so the finish stays clean. No mobile service right now.
+  - id: cancellation
+    triggers: [cancellation policy, cancel policy, how late can i cancel]
+    answer: You can move or cancel up to 24 hours ahead at no charge. Inside 24 hours there's a $50 shop fee.
+  - id: payment
+    triggers: [payment, do you take cards, credit card, deposit]
+    answer: We take cards. Ceramic and front PPF are half down to hold the day. Everything else is paid at pickup.
+  - id: wait
+    triggers: [loaner, wait, waiting, ride, drop off, drop-off]
+    answer: Express washes are fine to wait for. Bigger jobs are drop-off. There's no loaner car. The waiting area has coffee.
+  - id: ceramic-warranty
+    triggers: [warranty, ceramic warranty, how long does ceramic last]
+    answer: The coating we install carries a 2-year finish warranty when the car is hand washed. We go over care at pickup.
+  - id: tint-law
+    triggers: [legal, tint law, how dark, vlt]
+    answer: In Texas the front side windows have to stay at 25% VLT or lighter. We won't install a shade that would fail inspection.
+  - id: size
+    triggers: [truck, suv, vehicle size, how is price]
+    answer: The range on each service is the vehicle size. A compact sits at the low end, a truck or large SUV at the high end.
+  - id: reschedule
+    triggers: [reschedule, move my appointment, change my appointment]
+    answer: I can move it. Tell me the new day and I'll check the book.
+policies:
+  cancellation: You can move or cancel up to 24 hours ahead at no charge. Inside 24 hours there's a $50 shop fee.
+  payment: Ceramic and front PPF are half down to hold the day, the rest at pickup. Everything else is paid when you pick up. We take cards.
+  dropoff: Pull around to the second bay. If we're already in a job, drop the keys in the lockbox and we'll text you.
+booking:
+  slot_minutes: 30
+  lead_time_hours: 2
+  horizon_days: 21
+  buffer_minutes: 15

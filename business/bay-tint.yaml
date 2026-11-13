@@ -1,0 +1,51 @@
+id: bay-tint
+name: Bay Window Tint
+assistant_name: Luis
+phone: "+15135550110"
+transfer_number: "+15135550119"
+email: hello@baytint.example
+timezone: America/New_York
+address: 90 River Road, Cincinnati, Ohio
+greeting: Bay Window Tint, this is Luis. What are we tinting?
+hours_speech: Tuesday through Friday 9:00 AM to 5:00 PM, Saturday 9:00 AM to 1:00 PM. Closed Sunday and Monday.
+menu_speech: Full-vehicle tint is $229 to $399. A windshield visor strip is $79. Front two windows are $149.
+hours:
+  mon: null
+  tue: { open: "09:00", close: "17:00" }
+  wed: { open: "09:00", close: "17:00" }
+  thu: { open: "09:00", close: "17:00" }
+  fri: { open: "09:00", close: "17:00" }
+  sat: { open: "09:00", close: "13:00" }
+  sun: null
+services:
+  - id: full-tint
+    name: Full Vehicle Tint
+    duration_minutes: 150
+    price: $229 to $399
+    description: Every window, legal shade for Ohio.
+    aliases: [full tint, full vehicle, tint]
+  - id: visor
+    name: Visor Strip
+    duration_minutes: 45
+    price: $79
+    description: A brow strip across the top of the windshield.
+    aliases: [visor, visor strip, brow]
+  - id: front-two
+    name: Front Two Windows
+    duration_minutes: 75
+    price: $149
+    description: Driver and passenger front doors.
+    aliases: [front two, fronts]
+faqs:
+  - id: legal
+    triggers: [legal, how dark]
+    answer: We stay inside Ohio's limit so the car doesn't fail inspection.
+policies:
+  cancellation: Cancel by the day before and there's no fee.
+  payment: Paid at pickup. Cards are fine.
+  dropoff: Park along the side of the building and come in the tint bay door.
+booking:
+  slot_minutes: 30
+  lead_time_hours: 1
+  horizon_days: 14
+  buffer_minutes: 10
