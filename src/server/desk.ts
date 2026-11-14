@@ -1,6 +1,9 @@
+import { spokenFacts, supplementReply } from "./answers";
+import { buildRetellLlm, buildVapiAssistant, transferDestination } from "./assistants";
 import { loadBusiness, serviceById } from "./config";
 import { nextTurn, summarize, type BookRequest } from "./dialogue";
 import { emailBody, offerSlots, priceSpeech, shopAlert, smsBody } from "./copy";
+import { connectPg, PgJsonStore, type QueryFn } from "./db";
 import { chatComplete, rephraseLine, resolveLlm, systemPrompt, TOOLS, type LlmSettings, type ToolCall } from "./llm";
 import { interpret, matchService, normalizePhone, parseWhen } from "./nlu";
 import {
@@ -10,11 +13,14 @@ import {
   LocalCrm,
   MockCalendar,
   MockMessages,
-  ResendEmail,
   TwilioSms,
   googleCreds,
+  googleCalendarEnabled,
+  googleSheetsEnabled,
+  selectEmail,
   type CalendarProvider,
   type CrmProvider,
+  type Mailer,
   type MessageProvider,
 } from "./providers";
 import { findSlots, type SlotQuery } from "./slots";
@@ -43,6 +49,8 @@ export type DeskOptions = {
   now?: () => Date;
   seed?: boolean;
   fetchImpl?: typeof fetch;
+  mailer?: Mailer;
+  query?: QueryFn;
 };
 
 type ProviderState = { name: string; mode: string; ready: boolean; detail: string };
@@ -82,24 +90,37 @@ export class FrontDesk {
     const env = options.env ?? {};
     const fetchImpl = options.fetchImpl ?? fetch;
     const creds = googleCreds(env);
-    const wantGoogleCal = (env.CALENDAR_PROVIDER ?? "mock") === "google";
-    const wantSheets = (env.CRM_PROVIDER ?? "local") === "google";
     const auth = creds ? new GoogleAccess(creds, fetchImpl) : null;
-    const calendar =
-      wantGoogleCal && creds && auth && filled(env.GOOGLE_CALENDAR_ID) ? new GoogleCalendar(creds, auth, fetchImpl) : new MockCalendar();
-    const crm = wantSheets && creds && auth && filled(creds.spreadsheetId) ? new GoogleSheets(creds.spreadsheetId, auth, fetchImpl) : new LocalCrm();
+    const calendar = googleCalendarEnabled(env, creds) && creds && auth ? new GoogleCalendar(creds, auth, fetchImpl) : new MockCalendar();
+    const crm = googleSheetsEnabled(env, creds) && creds && auth ? new GoogleSheets(creds.spreadsheetId, auth, fetchImpl) : new LocalCrm();
     const sms =
       (env.SMS_PROVIDER ?? "mock") === "twilio" && filled(env.TWILIO_ACCOUNT_SID) && filled(env.TWILIO_AUTH_TOKEN) && filled(env.TWILIO_FROM_NUMBER)
         ? new TwilioSms(env, fetchImpl)
         : new MockMessages("mock");
-    const email =
-      (env.EMAIL_PROVIDER ?? "mock") === "resend" && filled(env.RESEND_API_KEY) && filled(env.NOTIFY_FROM_EMAIL)
-        ? new ResendEmail(env, fetchImpl)
-        : new MockMessages("mock");
+    const email = selectEmail(env, fetchImpl, options.mailer);
     const desk = new FrontDesk(options, { calendar, crm, sms, email });
+    if (filled(env.DATABASE_URL)) {
+      try {
+        const query = options.query ?? (await connectPg(env.DATABASE_URL!));
+        await desk.store.attachRemote(new PgJsonStore(query));
+      } catch (error) {
+        desk.store.remoteError = error instanceof Error ? error.message : "Database connection failed";
+      }
+    }
     const safe = calendar.mode === "mock" && sms.mode === "mock" && email.mode === "mock";
-    if (options.seed && safe && desk.store.isEmpty()) await desk.seedDemo();
+    if (options.seed && safe && !desk.store.persistent && desk.store.isEmpty()) await desk.seedDemo();
     return desk;
+  }
+
+  transferNumber(): string {
+    return transferDestination(this.business(), this.env);
+  }
+
+  private shop(): Business {
+    const business = this.business();
+    const number = this.transferNumber();
+    if (number === business.transfer_number) return business;
+    return { ...business, transfer_number: number };
   }
 
   business(): Business {
@@ -141,8 +162,8 @@ export class FrontDesk {
         ready: calendarReady,
         detail:
           this.calendar.mode === "google"
-            ? "Google Calendar checks free/busy and writes the event."
-            : this.env.CALENDAR_PROVIDER === "google"
+            ? `Google Calendar checks free/busy and writes the event. Share the calendar with ${google?.clientEmail ?? "the service account"}.`
+            : this.env.CALENDAR_PROVIDER === "google" || filled(this.env.GOOGLE_CALENDAR_ID)
               ? "Google was selected, but the service account or calendar id is missing. Bookings stay in the local log."
               : "Mock calendar. Bookings stay in the local desk log.",
       },
@@ -173,11 +194,25 @@ export class FrontDesk {
         mode: this.email.mode,
         ready: true,
         detail:
-          this.email.mode === "resend"
-            ? "Resend sends the confirmation."
-            : this.env.EMAIL_PROVIDER === "resend"
-              ? "Resend was selected, but the API key or from-address is missing. Emails are only logged."
-              : "Emails are logged on the desk, not sent.",
+          this.email.mode === "gmail"
+            ? `Gmail sends from ${this.env.GMAIL_USER} to the customer and to ${this.shopInbox()}.`
+            : this.email.mode === "resend"
+              ? "Resend sends the confirmation."
+              : this.env.EMAIL_PROVIDER === "gmail" || filled(this.env.GMAIL_USER) || filled(this.env.GMAIL_APP_PASSWORD)
+                ? "Gmail was selected, but GMAIL_USER or GMAIL_APP_PASSWORD is missing. Emails are only logged."
+                : this.env.EMAIL_PROVIDER === "resend"
+                  ? "Resend was selected, but the API key or from-address is missing. Emails are only logged."
+                  : "Emails are logged on the desk, not sent. Set GMAIL_USER and GMAIL_APP_PASSWORD to send from Gmail.",
+      },
+      log: {
+        name: "Call log",
+        mode: this.store.persistent ? "postgres" : "file",
+        ready: this.store.persistent || !this.store.remoteError,
+        detail: this.store.persistent
+          ? "Calls are saved to Postgres and survive a restart."
+          : this.store.remoteError
+            ? `Postgres was configured but did not connect (${this.store.remoteError}). The log is on the instance disk.`
+            : "The log is a file on this instance. Set DATABASE_URL (Neon or Supabase free Postgres) to keep it across restarts.",
       },
     };
   }
@@ -280,9 +315,15 @@ export class FrontDesk {
     return this.enqueue(async () => {
       const call = await this.ensureExternal(input.channel, input.externalId, input.from);
       const result = await this.execTool(call, { id: nid("tool"), name: input.name, args: input.args }, []);
+      if (result.action === "end") {
+        call.phase = "ended";
+        call.endedAt = this.now().toISOString();
+        if (call.status === "in_progress") call.status = "completed";
+      }
       call.llm = { provider: input.channel, fallback: false, note: "Tool call from the voice provider." };
       call.summary = summarize(call);
       await this.saveCall(call);
+      if (result.action === "end" && !call.bookingId) await this.writeCrm(call);
       return result.payload;
     });
   }
@@ -304,21 +345,11 @@ export class FrontDesk {
   }
 
   vapiAssistant() {
-    const business = this.business();
-    const base = (this.env.PUBLIC_BASE_URL || this.env.RENDER_EXTERNAL_URL || "").replace(/\/$/, "");
-    return {
-      name: `${business.name} ${business.assistant_name}`,
-      firstMessage: business.greeting,
-      serverUrl: base ? `${base}/api/webhooks/vapi` : undefined,
-      model: {
-        provider: "groq",
-        model: this.llm.model || "openai/gpt-oss-120b",
-        messages: [{ role: "system", content: systemPrompt(business) }],
-        tools: TOOLS,
-      },
-      voice: { provider: this.env.VAPI_VOICE_PROVIDER || "vapi", voiceId: this.env.VAPI_VOICE_ID || "Elliot" },
-      endCallFunctionEnabled: true,
-    };
+    return buildVapiAssistant(this.shop(), this.env);
+  }
+
+  retellAssistant() {
+    return buildRetellLlm(this.shop(), this.env);
   }
 
   private async handleUnlocked(callId: string, text: string): Promise<TurnResponse> {
@@ -398,6 +429,7 @@ export class FrontDesk {
       if (BOOKED_CLAIM.test(say) && !booking && !working.bookingId) {
         throw new Error("Groq confirmed a booking that was not created");
       }
+      say = supplementReply(text, say, this.business(), this.now());
       if (booking) {
         action = "booked";
         working.bookingId = booking.id;
@@ -427,13 +459,13 @@ export class FrontDesk {
   }
 
   private async applyDialogue(call: CallRecord, text: string): Promise<TurnResponse> {
-    const business = this.business();
     const now = this.now();
     const busy = await this.busy();
+    const tuned = this.shop();
     const outcome = nextTurn(call, text, {
-      business,
+      business: tuned,
       now,
-      slots: (query) => findSlots(business, { ...query, busy, now }),
+      slots: (query) => findSlots(tuned, { ...query, busy, now }),
     });
     let booking: Booking | undefined;
     let action: TurnAction = outcome.action === "book" || outcome.action === "cancel" ? "continue" : outcome.action;
@@ -512,6 +544,13 @@ export class FrontDesk {
     const business = this.business();
     const args = tool.args;
     if (tool.name === "get_shop_info") {
+      if (typeof args.question === "string" && args.question.trim()) {
+        const facts = spokenFacts(business, interpret(args.question, business, this.now()), this.now());
+        if (facts.length) {
+          const speech = facts.join(" ");
+          return { payload: { speech }, speech };
+        }
+      }
       const topic = String(args.topic ?? "services");
       const service = matchService(String(args.service ?? ""), business);
       const found = service ? serviceById(business, service) : undefined;
@@ -583,14 +622,15 @@ export class FrontDesk {
         return { payload: { ok: false, speech }, speech };
       }
     }
-    if (tool.name === "transfer_call") {
+    if (tool.name === "transfer_call" || tool.name === "transferCall") {
+      const number = this.transferNumber();
       call.status = "transferred";
       call.phase = "transferred";
-      call.transfer = { number: business.transfer_number, reason: String(args.reason ?? "Caller asked for a person").slice(0, 180) };
+      call.transfer = { number, reason: String(args.reason ?? "Caller asked for a person").slice(0, 180) };
       const speech = "I'll connect you with the shop now.";
-      return { payload: { ok: true, speech, number: business.transfer_number }, speech, action: "transfer" };
+      return { payload: { ok: true, speech, number }, speech, action: "transfer" };
     }
-    if (tool.name === "end_call") {
+    if (tool.name === "end_call" || tool.name === "endCall") {
       const speech = `Thanks for calling ${business.name}.`;
       return { payload: { ok: true, speech }, speech, action: "end" };
     }
@@ -676,6 +716,10 @@ export class FrontDesk {
     return `I cancelled the ${booking.serviceName} on ${when}. Want a different time?`;
   }
 
+  private shopInbox(): string {
+    return this.env.SHOP_OWNER_EMAIL?.trim() || this.business().email;
+  }
+
   private async notify(booking: Booking, deposit: boolean) {
     const business = this.business();
     const when = formatLong(new Date(booking.start), business.timezone);
@@ -706,7 +750,7 @@ export class FrontDesk {
       {
         channel: "email",
         audience: "shop",
-        to: business.email,
+        to: this.shopInbox(),
         subject: `New booking — ${booking.serviceName}`,
         body: shopAlert(business, booking.customerName, booking.phone, booking.serviceName, when),
         bookingId: booking.id,

@@ -1,5 +1,6 @@
-# Render free web service. Only GROQ_API_KEY is required; type it in the dashboard.
-# Calendar, CRM, SMS, email, Vapi, Retell, and Twilio stay in demo/mock mode until their keys exist.
+# Render free web service.
+# Secrets stay sync: false so Don pastes them in the dashboard. See README "Go live with free tools".
+# Calendar, Sheets, Gmail, and Postgres turn on when their secrets are present.
 services:
   - type: web
     name: ai-voice-receptionist
@@ -35,3 +36,31 @@ services:
         value: business/northline.yaml
       - key: STORE_PATH
         value: data/store.json
+      - key: VAPI_MODEL_PROVIDER
+        value: vapi
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: VAPI_API_KEY
+        sync: false
+      - key: VAPI_ASSISTANT_ID
+        sync: false
+      - key: VAPI_MODEL
+        sync: false
+      - key: VAPI_WEBHOOK_SECRET
+        sync: false
+      - key: TRANSFER_NUMBER
+        sync: false
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: SHOP_OWNER_EMAIL
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: GOOGLE_CALENDAR_ID
+        sync: false
+      - key: GOOGLE_SHEETS_ID
+        sync: false
+      - key: DATABASE_URL
+        sync: false

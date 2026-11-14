@@ -83,7 +83,8 @@ export function systemPrompt(business: Business): string {
     "Never invent a price, a policy, or an open time. Prices and hours below are the only ones you may quote.",
     "Before you say a time is open, call check_availability. Before you tell the caller they are booked, call book_appointment and wait for ok:true.",
     "Collect a name and a mobile number before booking. Pass start as the ISO timestamp from check_availability.",
-    "If they ask for a person, manager, or owner, call transfer_call. If they say goodbye, call end_call.",
+    "If the caller asks more than one question, answer every part in the same reply. Include the price and the hours when both are asked. Never answer only one part of a two-part question.",
+    "If they ask for a person, manager, or owner, call transfer_call so the live call is forwarded. If they say goodbye, call end_call.",
     `Address: ${business.address}.`,
     `Hours: ${business.hours_speech}`,
     `Services:\n${services}`,
@@ -99,12 +100,14 @@ export const TOOLS = [
     type: "function",
     function: {
       name: "get_shop_info",
-      description: "Look up hours, address, services, a price, or shop policies.",
+      description:
+        "Look up hours, address, services, a price, or shop policies. If the caller asked more than one thing, pass their words as question so every part is answered.",
       parameters: {
         type: "object",
         properties: {
           topic: { type: "string", enum: ["hours", "address", "services", "pricing", "policies"] },
           service: { type: "string" },
+          question: { type: "string", description: "The caller's question, verbatim, when they asked more than one thing." },
         },
         required: ["topic"],
       },

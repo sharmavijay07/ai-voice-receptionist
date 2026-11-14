@@ -5,13 +5,16 @@ const globalDesk = globalThis as unknown as { __frontDesk?: Promise<FrontDesk> }
 export function getDesk(): Promise<FrontDesk> {
   if (!globalDesk.__frontDesk) {
     const env = process.env;
-    const liveCalendar = (env.CALENDAR_PROVIDER ?? "mock") === "google";
+    const liveCalendar =
+      (env.CALENDAR_PROVIDER ?? "mock") === "google" ||
+      Boolean(env.GOOGLE_CALENDAR_ID && (env.GOOGLE_SERVICE_ACCOUNT_JSON || env.GOOGLE_CLIENT_EMAIL));
     const liveSms = (env.SMS_PROVIDER ?? "mock") === "twilio";
-    const liveEmail = (env.EMAIL_PROVIDER ?? "mock") === "resend";
+    const liveEmail = Boolean(env.GMAIL_USER && env.GMAIL_APP_PASSWORD) || (env.EMAIL_PROVIDER ?? "mock") === "resend";
+    const liveDb = Boolean(env.DATABASE_URL);
     globalDesk.__frontDesk = FrontDesk.create({
       env,
       storePath: env.STORE_PATH || "data/store.json",
-      seed: env.DEMO_SEED !== "false" && !liveCalendar && !liveSms && !liveEmail,
+      seed: env.DEMO_SEED !== "false" && !liveCalendar && !liveSms && !liveEmail && !liveDb,
     });
   }
   return globalDesk.__frontDesk;

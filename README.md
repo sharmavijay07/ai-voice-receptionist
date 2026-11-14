@@ -25,9 +25,9 @@ No API keys are required. The first run copies `.env.example` to `.env.local`, s
 | Services, prices, hours | `business/*.yaml`. The model is not allowed to invent these. |
 | Name, phone, service request | Captured on the call record and shown on the desk. |
 | Check the calendar and book | Mock calendar locally. Google Calendar when `CALENDAR_PROVIDER=google`. |
-| Confirmation | SMS and email. Logged in demo mode. Twilio and Resend when configured. |
-| Transfer to a person | Flags the shop number. Twilio dials it. Vapi and Retell get a transfer tool result. |
-| Log every call | Local desk log, plus a Google Sheet when `CRM_PROVIDER=google`. |
+| Confirmation | SMS and email. Logged in demo mode. Gmail SMTP when `GMAIL_USER` is set, otherwise Resend, otherwise logged. |
+| Transfer to a person | Flags the shop number. Twilio dials it. Vapi's `transferCall` tool forwards the live call. Retell cold-transfers with its built-in tool. |
+| Log every call | File on the instance, Postgres when `DATABASE_URL` is set, plus a Google Sheet when the sheet id is set. |
 | Dashboard | `/` shows calls, upcoming jobs, and the confirmation outbox. |
 | Clone per client | A new YAML file and `BUSINESS_CONFIG`. |
 
@@ -81,7 +81,7 @@ business/bay-tint.yaml      second shop, to copy from
 src/server/dialogue.ts      built-in receptionist
 src/server/llm.ts           Groq and optional Gemini
 src/server/desk.ts          bookings, confirmations, call log
-src/server/providers.ts     mock, Google Calendar, Sheets, Twilio, Resend
+src/server/providers.ts     mock, Google Calendar, Sheets, Gmail, Twilio, Resend
 src/app/api/webhooks/       Vapi, Retell, Twilio
 src/app/simulator/          browser phone
 n8n/booking-webhook.json    optional import
@@ -110,82 +110,103 @@ NODE_OPTIONS=--max-old-space-size=384 npm run start
 
 `npm start` runs `node scripts/start.mjs`, which listens on `0.0.0.0:$PORT`. The heap caps stay inside the free plan's 512 MB.
 
-On the Render dashboard, the only value you type in is **GROQ_API_KEY** (`sync: false` in the blueprint). The model is `openai/gpt-oss-120b` at `https://api.groq.com/openai/v1`. Calendar, Sheets, Twilio, Resend, Vapi, and Retell stay in demo mode until their keys exist, so the public URL is a working desk with only the Groq key set. The call log lives on the instance disk and is cleared when the free service restarts. The free instance also sleeps after inactivity. The first visit wakes it.
+The blueprint leaves every secret as `sync: false`, so the public URL is a working demo until you paste them. The free instance sleeps after inactivity. The first visit wakes it. The call log stays on the instance disk until `DATABASE_URL` is set.
 
-| Variable | On Render |
-| --- | --- |
-| `GROQ_API_KEY` | Required. You paste it in the dashboard. |
-| `LLM_PROVIDER`, `LLM_MODE`, `GROQ_MODEL`, `GROQ_BASE_URL`, `GROQ_REASONING_EFFORT` | Set by the blueprint. Groq, tools mode, `openai/gpt-oss-120b`. |
-| `CALENDAR_PROVIDER`, `CRM_PROVIDER`, `SMS_PROVIDER`, `EMAIL_PROVIDER` | Set to mock / local. Change them only when you add that provider's keys. |
-| `DEMO_SEED`, `BUSINESS_CONFIG`, `STORE_PATH` | Set by the blueprint. |
-| `GOOGLE_CLIENT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_CALENDAR_ID`, `GOOGLE_SHEETS_ID` | Optional. Without them, calendar and CRM stay local even if you flip the provider. |
-| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` | Optional. Without all three, texts are only logged. |
-| `RESEND_API_KEY`, `NOTIFY_FROM_EMAIL` | Optional. Without both, email is only logged. |
-| `VAPI_WEBHOOK_SECRET`, `VAPI_VOICE_PROVIDER`, `VAPI_VOICE_ID` | Optional. The browser phone does not need them. |
-| `PUBLIC_BASE_URL` | Optional. On Render, webhook links fall back to `RENDER_EXTERNAL_URL`. |
-| `GEMINI_API_KEY`, `N8N_WEBHOOK_URL`, `N8N_WEBHOOK_SECRET` | Optional. |
+The live checklist below is the list of values Don pastes in the Render dashboard. `VAPI_MODEL_PROVIDER` is already `vapi`, so the phone line does not need a Groq key saved inside Vapi.
 
-## Go live
+## Go live with free tools
 
-Do this in accounts the shop owner controls. Put secrets in `.env.local` only.
+Do this in accounts Don controls. On Render, open the service **ai-voice-receptionist** → Environment, and paste each value. Locally, put the same keys in `.env.local`. Nothing here requires a paid plan.
 
-### 1. Groq
+The public origin is `https://ai-voice-receptionist-mczp.onrender.com`.
 
-1. Create a free key at [console.groq.com](https://console.groq.com).
-2. Set `GROQ_API_KEY` in `.env.local`.
-3. Leave `GROQ_MODEL=openai/gpt-oss-120b` unless you have a reason to change it.
-4. Restart `npm run demo` and ask Maya something off-script. The call ticket shows `openai/gpt-oss-120b` when Groq answered, and a fallback note when it did not.
+| Env var | Where Don gets it | What it does |
+| --- | --- | --- |
+| `PUBLIC_BASE_URL` | The Render URL above. Render also sets `RENDER_EXTERNAL_URL` on the instance, which the app uses if this is empty. Set this yourself when you run `npm run vapi:sync` from a laptop. | Tool and webhook URLs. |
+| `VAPI_API_KEY` | [dashboard.vapi.ai](https://dashboard.vapi.ai) → API Keys → copy the **private** key. | `npm run vapi:sync` attaches the tools. |
+| `VAPI_ASSISTANT_ID` | Vapi → Assistants → open the assistant already on the free number. The id is in the URL. | Which assistant the sync updates. Leave it empty the first time to create one, then save the id the script prints. |
+| `TRANSFER_NUMBER` | Don's mobile, E.164, for example `+15125550190`. | Vapi `transferCall` forwards here. Retell cold-transfers here. Twilio `<Dial>` uses it too. If empty, the number in `business/northline.yaml` is used. |
+| `GMAIL_USER` | The Gmail address that should send confirmations, for example `don@gmail.com`. | SMTP login and the From address. |
+| `GMAIL_APP_PASSWORD` | Google Account → Security → turn on **2-Step Verification** → **App passwords** → Mail → generate. Paste the 16-character password (spaces are fine). This is not the normal Gmail password. | SMTP password for `smtp.gmail.com:465`. |
+| `SHOP_OWNER_EMAIL` | Don's inbox. | Booking alert. The customer gets a copy only when they gave an email on the call. |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | The JSON key file from the Google steps below. Paste the whole file as one value. | Signs in to Calendar and Sheets. No OAuth consent screen. |
+| `GOOGLE_CALENDAR_ID` | Google Calendar → the shop calendar → Settings → Integrate calendar → Calendar ID. | Where appointments are written. Sharing this calendar with the service account turns Google Calendar on. |
+| `GOOGLE_SHEETS_ID` | The id in the spreadsheet URL: `docs.google.com/spreadsheets/d/<this part>/edit`. | Call rows. Sharing the sheet with the service account turns the sheet on. The desk creates a `Calls` tab if it is missing. |
+| `DATABASE_URL` | [Neon](https://neon.tech) or [Supabase](https://supabase.com) free Postgres. Copy the pooled connection string (`postgres://...`). | Call log that survives a free-instance restart. If this is empty, the log stays in `data/store.json` on the instance disk. |
+| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) → API Keys. Free, no card. | Optional. The browser and Twilio path use Groq `openai/gpt-oss-120b`. Leave it empty and the built-in receptionist answers. Vapi does not read this key. |
 
-### 2. Google Calendar and the call sheet
+`VAPI_MODEL_PROVIDER` is already `vapi` in `render.yaml`. That is Vapi's own hosted model, so you do not add a Groq key under Vapi → Provider Keys. To use Groq on the Vapi call instead, set `VAPI_MODEL_PROVIDER=groq` and `VAPI_MODEL=openai/gpt-oss-120b`, then add your Groq key in Vapi's provider settings. The browser path keeps using `GROQ_API_KEY` either way.
 
-1. Create a Google Cloud project and enable the Calendar API and the Google Sheets API.
-2. Create a service account and download the JSON key.
-3. Create a calendar and a spreadsheet. Share both with the service account email, as editor.
-4. Name a tab `Calls`. Row 1 headers, in order: Timestamp, Call id, From, Customer, Phone, Service, Status, Appointment, Summary, Channel.
-5. Set:
+Gmail is preferred over Resend whenever `GMAIL_USER` and `GMAIL_APP_PASSWORD` are both set. If neither Gmail nor Resend is configured, email is only logged on the desk (demo mode). A failed send does not undo the booking.
+
+Google Calendar and Sheets turn on when the service account JSON and the matching id are set, even if `CALENDAR_PROVIDER` or `CRM_PROVIDER` still say mock. Set `CALENDAR_PROVIDER=off` or `CRM_PROVIDER=off` to force the local book. `GOOGLE_CLIENT_EMAIL` and `GOOGLE_PRIVATE_KEY` still work if you would rather paste those two fields than the whole JSON.
+
+When Gmail, Google, or `DATABASE_URL` is set, the sample morning is not seeded.
+
+### Attach the Vapi tools
+
+The assistant on the free Vapi number should already use server URL `https://ai-voice-receptionist-mczp.onrender.com/api/webhooks/vapi`. It does not forward or book until the tools are attached.
+
+From a machine that has the env vars (or the Render shell):
+
+```bash
+PUBLIC_BASE_URL=https://ai-voice-receptionist-mczp.onrender.com \
+VAPI_API_KEY=your-private-key \
+VAPI_ASSISTANT_ID=your-assistant-id \
+TRANSFER_NUMBER=+1yournumber \
+npm run vapi:sync
+```
+
+That PATCHes the assistant. The tools are `check_availability`, `book_appointment`, `get_shop_info`, `transfer_call`, and `end_call`. The first three POST to the server URL. `transfer_call` is Vapi's `transferCall` tool with `TRANSFER_NUMBER` as a blind-transfer destination, so the call forwards even if the free instance is asleep. `end_call` hangs up. `GET /api/assistant/vapi` returns the same payload if you would rather paste it.
+
+Optional: `VAPI_WEBHOOK_SECRET`. Vapi sends it as `x-vapi-secret`.
+
+### Retell, if you use it
+
+Cold transfer is part of the Retell call. There is no extra tool fee. `GET /api/assistant/retell` returns a Retell LLM payload whose `transfer_call` tool dials `TRANSFER_NUMBER` and whose custom tools POST to `/api/webhooks/retell`. Paste `general_tools` onto the Retell LLM. Availability results still include `label | ISO` rows to pass back to `book_appointment`.
+
+### Google Calendar and the call sheet
+
+1. Open [Google Cloud Console](https://console.cloud.google.com) and create a project. The free tier is enough.
+2. APIs & Services → Library. Enable **Google Calendar API** and **Google Sheets API**.
+3. APIs & Services → Credentials → Create credentials → **Service account**. Name it `front-desk`. Open the account → Keys → Add key → JSON. Download the file.
+4. In Google Calendar, create a calendar for the shop (or use an existing one). Settings for that calendar → Share with specific people → add the service account email (`...@...iam.gserviceaccount.com`) as **Make changes to events**. Copy the Calendar ID.
+5. Create a spreadsheet. Share it with the same service account email as **Editor**. Copy the spreadsheet id from the URL. You do not have to add the `Calls` tab yourself. The first booking creates it and writes the header row: Timestamp, Call id, From, Customer, Phone, Service, Status, Appointment, Summary, Channel.
+6. Paste `GOOGLE_SERVICE_ACCOUNT_JSON` (the whole file), `GOOGLE_CALENDAR_ID`, and `GOOGLE_SHEETS_ID` into Render.
+
+The desk signs its own JWT. It does not invite the customer to the event, because a service account cannot do that without domain-wide delegation. The email and phone go in the event description.
+
+### Gmail confirmations
+
+1. Sign in to the Google account that should send the mail.
+2. Turn on 2-Step Verification if it is off: [myaccount.google.com/security](https://myaccount.google.com/security).
+3. Search the account page for **App passwords**. Choose Mail and your device, then generate.
+4. Set `GMAIL_USER` to that Gmail address, `GMAIL_APP_PASSWORD` to the 16 characters, and `SHOP_OWNER_EMAIL` to the inbox that should see every booking.
+5. Redeploy. The next booking sends through `smtp.gmail.com` port 465. The customer is emailed only when the call collected an address. Don always gets the shop alert.
+
+### Call log that survives sleep
+
+1. Create a free project at [Neon](https://neon.tech) or [Supabase](https://supabase.com).
+2. Copy the Postgres connection string. Prefer the pooler string. It looks like `postgres://user:password@host/dbname?sslmode=require`.
+3. Set `DATABASE_URL` on Render and redeploy.
+
+The desk keeps one JSON document in a `desk_store` table. If the database cannot be reached, the desk keeps serving and writes the file log, and the dashboard says so.
+
+### Still optional
+
+**Groq for the browser and Twilio path.** Set `GROQ_API_KEY`. Leave `GROQ_MODEL=openai/gpt-oss-120b`. The call ticket shows that model when Groq answered, and a fallback note when it did not.
+
+**Twilio trial.** Buy or claim a number and set the voice webhook to `POST https://ai-voice-receptionist-mczp.onrender.com/api/webhooks/twilio`. A transfer becomes `<Dial>` to `TRANSFER_NUMBER`. Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM_NUMBER` before texts are actually sent. Trial accounts can only call verified numbers.
+
+**Resend**, only if you are not using Gmail:
 
 ```
-CALENDAR_PROVIDER=google
-CRM_PROVIDER=google
-GOOGLE_CLIENT_EMAIL=the-service-account@project.iam.gserviceaccount.com
-GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-GOOGLE_CALENDAR_ID=the-calendar-id
-GOOGLE_SHEETS_ID=the-spreadsheet-id
-```
-
-Keep the `\n` escapes in the private key, on one line. The desk signs its own JWT. It does not add the customer as a calendar guest, because a service account cannot invite people without domain-wide delegation. The email goes in the event description instead.
-
-When Google is on, the sample day is not seeded, so startup does not write real events.
-
-### 3. A phone number
-
-**Vapi, recommended for a natural voice.** The shop gets a US number on Vapi's usage plan, including a small free credit.
-
-1. In Vapi, set the server URL to `https://YOUR_HOST/api/webhooks/vapi`.
-2. Or fetch `GET /api/assistant/vapi` and paste that assistant. It already points the model at Groq `openai/gpt-oss-120b` and lists the tools.
-3. Set `PUBLIC_BASE_URL` to the public https origin.
-4. Optional: `VAPI_WEBHOOK_SECRET`, sent as `x-vapi-secret`.
-
-**Retell.** Point custom functions and call events at `POST /api/webhooks/retell`. Function responses include the spoken line and, for availability, `label | ISO` rows the agent must pass back to `book_appointment`.
-
-**Twilio trial, the cheap path.** Buy or claim a number and set the voice webhook to `POST https://YOUR_HOST/api/webhooks/twilio`. Speech is gathered and spoken with `TWILIO_SAY_VOICE` (default `Polly.Joanna-Neural`). The words come from Groq when the key is set. A transfer becomes `<Dial>` to the shop number in the YAML. Set `TWILIO_AUTH_TOKEN` so signatures are checked. Trial accounts can only call verified numbers.
-
-### 4. Confirmations
-
-```
-SMS_PROVIDER=twilio
-TWILIO_ACCOUNT_SID=
-TWILIO_AUTH_TOKEN=
-TWILIO_FROM_NUMBER=
-
 EMAIL_PROVIDER=resend
 RESEND_API_KEY=
 NOTIFY_FROM_EMAIL=maya@the-shop.com
 ```
 
-The customer gets a text. The shop inbox gets a copy. If the caller said an email address, they get one too. A failed send does not undo the booking. The outbox shows `failed`.
-
-### 5. Optional n8n
+**n8n.**
 
 Import `n8n/booking-webhook.json`, activate it, and set `N8N_WEBHOOK_URL`. The desk already writes the calendar, the sheet, and the confirmation. Use n8n when the shop wants a side effect this app does not do. `N8N_WEBHOOK_SECRET` is sent as `x-webhook-secret`.
 
@@ -244,7 +265,8 @@ Signing up for the free plan does not require a card. You pay when you move to D
 | Vapi voice (their own voice, not ElevenLabs) | about $0.01 to $0.02/min, about $6 to $12 |
 | Vapi phone number | 1 US number included on the usage plan. About $5 of credit to start |
 | Google Calendar and Sheets | $0 |
-| Resend email | $0 under the free tier (3,000 emails/month) |
+| Gmail SMTP | $0 with an app password. Resend's free tier is the fallback (3,000 emails/month) |
+| Neon or Supabase Postgres | $0 on the free tier, so the call log survives a restart |
 | Twilio SMS | about $0.008 per message, under $1, plus a trial credit |
 | n8n on a machine you already have | $0 |
 
@@ -256,8 +278,8 @@ The Twilio Gather path skips Vapi. Voice is about $0.0085/min inbound plus $1.15
 
 ## Operating notes
 
-- The desk log is `data/store.json`. It is gitignored. **Reset demo** on the dashboard restores the sample morning.
+- The desk log is `data/store.json`, unless `DATABASE_URL` is set, in which case Postgres is the copy that survives a restart. **Reset demo** on the dashboard restores the sample morning when the providers are still in demo mode.
 - Sample rows are badged so a live call is obvious next to them.
 - A booking is real only after the calendar accepts it. If Groq says someone is booked and no event was created, that turn is thrown out and the built-in receptionist handles it.
-- Transfer in the browser does not place a call. It records the number and shows it. Twilio dials.
+- Transfer in the browser records the number and shows it. Twilio dials it. Vapi's `transferCall` tool forwards the live call to `TRANSFER_NUMBER`. Retell's `transfer_call` tool does the same with a cold transfer.
 - `PUBLIC_BASE_URL` must be the public https origin before Twilio or Vapi can reach the webhooks.

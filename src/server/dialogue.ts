@@ -1,9 +1,10 @@
+import { spokenFacts } from "./answers";
 import { serviceById } from "./config";
-import { bookedSpeech, dayHoursSpeech, durationSpeech, offerSlots, priceBrief, priceSpeech } from "./copy";
+import { bookedSpeech, durationSpeech, offerSlots, priceBrief } from "./copy";
 import { interpret, type Interpretation } from "./nlu";
 import type { SlotQuery } from "./slots";
 import { clockLabel, dayNameFromYmd, formatLong, pad, weekdayOfYmd, zonedParts } from "./time";
-import type { Business, CallRecord, Pending, Slot, TurnAction, Weekday } from "./types";
+import type { Business, CallRecord, Pending, Slot, TurnAction } from "./types";
 
 export type TurnContext = {
   business: Business;
@@ -50,14 +51,6 @@ function finish(
   push(call, "assistant", say, at);
   call.summary = summarize(call);
   return { call, say, action, book };
-}
-
-function shopOpen(business: Business, now: Date): boolean {
-  const parts = zonedParts(now, business.timezone);
-  const hours = business.hours[parts.weekday];
-  if (!hours) return false;
-  const hm = `${pad(parts.hour)}:${pad(parts.minute)}`;
-  return hm >= hours.open && hm < hours.close;
 }
 
 function hmOfSlot(slot: Slot, timeZone: string): string {
@@ -304,34 +297,21 @@ export function nextTurn(call: CallRecord, text: string, ctx: TurnContext): Dial
   if (heard.intent === "goodbye") return endCall(next, `Thanks for calling ${business.name}. Have a good one.`, at);
   if (heard.intent === "cancel") return finish(next, "Let me check the book.", at, "cancel");
 
-  if (heard.intent === "open_now") {
-    const say = shopOpen(business, ctx.now)
-      ? `Yes, we're open right now. ${business.hours_speech}`
-      : `We're closed right now. ${business.hours_speech} I can still put you on the book.`;
-    if (next.phase === "booking" || next.pending) return finish(next, `${say} ${reminder(next)}`.trim(), at, "continue");
-    next.expectingBookYes = true;
-    return finish(next, `${say} Want me to book something?`, at, "continue");
-  }
-
-  if (heard.intent === "hours") {
-    const weekday = heard.weekdayWord ? (heard.weekdayWord.slice(0, 3) as Weekday) : undefined;
-    const named = weekday ? `${dayHoursSpeech(business, weekday)} ` : "";
-    if (next.phase === "booking" || isCollecting(next.pending)) return finish(next, `${named}${business.hours_speech} ${reminder(next)}`.trim(), at, "continue");
-    next.expectingBookYes = true;
-    return finish(next, `${named}${business.hours_speech} Want me to book a visit?`, at, "continue");
-  }
-
-  if (heard.intent === "location") {
-    return finish(next, `We're at ${business.address}. ${business.policies.dropoff}`, at, "continue");
+  if (isInfoQuestion(heard)) {
+    const parts = spokenFacts(business, heard, ctx.now);
+    if (parts.length) {
+      const locationOnly = heard.intent === "location" && !heard.askedPrice && !heard.askedHours && !heard.askedOpenNow;
+      const servicesOnly = heard.intent === "services" && !heard.askedPrice && !heard.askedHours && !heard.askedOpenNow;
+      if (next.phase === "booking" || isCollecting(next.pending)) {
+        return finish(next, `${parts.join(" ")} ${reminder(next)}`.trim(), at, "continue");
+      }
+      if (!locationOnly && !servicesOnly) next.expectingBookYes = true;
+      const invite = locationOnly || servicesOnly ? "" : " Want me to book a visit?";
+      return finish(next, `${parts.join(" ")}${invite}`.trim(), at, "continue");
+    }
   }
 
   if (inBooking(next, heard)) return advance(next, heard, ctx, at);
-
-  if (heard.intent === "pricing") {
-    next.expectingBookYes = true;
-    if (service) return finish(next, `${priceSpeech(service)} Want me to book it?`, at, "continue");
-    return finish(next, `${business.menu_speech} Which one do you want?`, at, "continue");
-  }
 
   if (heard.intent === "faq" && heard.faqId) {
     const faq = business.faqs.find((item) => item.id === heard.faqId);
@@ -339,12 +319,24 @@ export function nextTurn(call: CallRecord, text: string, ctx: TurnContext): Dial
     return finish(next, `${faq?.answer ?? ""}${service ? " Want me to book it?" : ""}`.trim(), at, "continue");
   }
 
-  if (heard.intent === "services") {
-    next.expectingBookYes = true;
-    return finish(next, `${business.menu_speech} I can book any of those.`, at, "continue");
-  }
-
   return finish(next, `I can quote a service, check ${business.name}'s calendar, or connect you with the shop. What do you need?`, at, "continue");
+}
+
+function isInfoQuestion(heard: Interpretation): boolean {
+  if (heard.intent === "book" || heard.intent === "provide" || heard.intent === "cancel" || heard.intent === "transfer" || heard.intent === "goodbye") {
+    return false;
+  }
+  return (
+    heard.intent === "hours" ||
+    heard.intent === "open_now" ||
+    heard.intent === "location" ||
+    heard.intent === "pricing" ||
+    heard.intent === "services" ||
+    heard.askedPrice ||
+    heard.askedHours ||
+    heard.askedOpenNow ||
+    heard.askedLocation
+  );
 }
 
 function isCollecting(pending?: Pending): boolean {
